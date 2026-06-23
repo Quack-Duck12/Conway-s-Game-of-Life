@@ -19,12 +19,22 @@
 #define BG_COLOR BLACK
 #define CELL_COLOR WHITE
 
-void raiseError(const char* msg, uint8_t shouldExit){
+#define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
+
+void freeAll(void* pointerArray[], size_t count){
+    for(uint32_t i = 0; i < count; i++){
+        free(pointerArray[i]);
+    }
+}
+void raiseError(const char* msg, uint8_t shouldExit, void* pointerArray[], size_t count){
     fprintf(stderr, "Error: %s\n", msg);
-    if(shouldExit) exit(EXIT_FAILURE);
+    if(shouldExit){
+        freeAll(pointerArray, count);
+        exit(EXIT_FAILURE);
+    }
 }
 
-void loadBuffer(const char* filepath, uint8_t* buffer);
+void loadBuffer(const char* filepath, uint8_t* buffer, void* pointerArray[], size_t count);
 
 uint8_t countNeighbour(uint8_t *buffer, uint16_t posX, uint16_t posY);
 uint8_t updateCellState(uint8_t selfState, uint8_t Neighbours);
@@ -34,23 +44,27 @@ size_t inline Buffermap(size_t x, size_t y);
 
 int main(int argc, const char* argv[]){
 
-    uint8_t fileBuffer = argc - 1;
+    float GENERATION_TIME = 0.10f;
+
+    int8_t fileBuffer = argc - 1;
 
     uint8_t *buffers[] = {
         calloc(CELL_W * CELL_H, sizeof(uint8_t)),
         calloc(CELL_W * CELL_H, sizeof(uint8_t))
     };
 
-    if (fileBuffer)
-        loadBuffer(argv[1], buffers[0]);
-
     uint8_t state = 0;
     uint8_t mode = 0;
-
-    uint32_t targetFPS = fileBuffer > 1 ? atoi(argv[2]) : 130;
-    SetConfigFlags(FLAG_WINDOW_UNDECORATED);
+    size_t Generation = 0;
+    float timer = 0.0f;
+    
+    SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_VSYNC_HINT);
     InitWindow(WIDTH, HEIGHT, "Window");
-    SetTargetFPS(targetFPS);
+
+    void *pointerArray[] = { buffers[0], buffers[1] };
+
+    if (fileBuffer)
+        loadBuffer(argv[1], buffers[0], pointerArray, ARRAY_LEN(pointerArray));
 
     while(!WindowShouldClose()){
 
@@ -69,17 +83,28 @@ int main(int argc, const char* argv[]){
                 buffers[state][Buffermap(cellPos.x, cellPos.y)] = 0;
             }
 
-        if(IsKeyPressed(KEY_KP_ADD)){
-            targetFPS += 5;
-            SetTargetFPS(targetFPS);
+        if(IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressedRepeat(KEY_KP_SUBTRACT)){
+            GENERATION_TIME += 0.025f;
+            GENERATION_TIME = Clamp(GENERATION_TIME, 0.0f, 5.0f);
         }
-        else if(IsKeyPressed(KEY_KP_SUBTRACT)){
-            targetFPS -= 5;
-            SetTargetFPS(targetFPS);
+        else if(IsKeyPressed(KEY_KP_ADD) || IsKeyPressedRepeat(KEY_KP_ADD)){
+            GENERATION_TIME -= 0.025f;
+            GENERATION_TIME = Clamp(GENERATION_TIME, 0.0f, 5.0f);
         }
 
         if(IsKeyPressed(KEY_SPACE)){
             mode = !mode;
+        }
+
+        if(IsKeyPressed(KEY_R)){
+            memset(buffers[0], 0, CELL_W * CELL_H * sizeof(uint8_t));
+            memset(buffers[1], 0, CELL_W * CELL_H * sizeof(uint8_t));
+
+            state = 0;
+            mode = 0;
+            Generation = 0;
+            timer = 0.0f;
+            GENERATION_TIME = 0.0f;
         }
 
         BeginDrawing();
@@ -102,13 +127,18 @@ int main(int argc, const char* argv[]){
                 DrawText(TextFormat("%d, %d", CELL_W, CELL_H), 10, 30, 30, BLUE);
                 DrawText(TextFormat("Mode: %d", mode), 10, 65, 30, BLUE);
                 DrawText(TextFormat("State: %d", state), 10, 100, 30, BLUE);
+                DrawText(TextFormat("Generation: %zu", Generation), 10, 135, 30, BLUE);
+                DrawText(TextFormat("Generation time Interval: %.2f", GENERATION_TIME), 10, 170, 30, BLUE);
+
             #else
-                DrawText(TextFormat("Editing Mode: %d", !mode), 10, 0, 30, BLUE);
+                DrawText(TextFormat("Generation: %zu", Generation), 10, 0, 30, BLUE);
+                DrawText(TextFormat("Editing Mode: %d", !mode), 10, 35, 30, BLUE);
             #endif
 
         EndDrawing();
+        timer += GetFrameTime();
 
-        if(mode){
+        if(mode && timer >= GENERATION_TIME){
             state = !state;
             for(int y = 0; y < CELL_H; y++){
                     size_t row = y * CELL_W;
@@ -117,13 +147,14 @@ int main(int argc, const char* argv[]){
                         buffers[state][i] = updateCellState(buffers[!state][i], countNeighbour(buffers[!state], x, y));
                 }
             }
+            timer = 0.0f;
+            Generation += 1;
         }
     }
 
     CloseWindow();
 
-    free(buffers[0]);
-    free(buffers[1]);
+    freeAll(pointerArray, ARRAY_LEN(pointerArray));
 
     return 0;
 }
@@ -175,11 +206,11 @@ uint8_t updateCellState(uint8_t selfState, uint8_t neighbours)
     return neighbours == 2 || neighbours == 3;
 }
 
-void loadBuffer(const char* filepath, uint8_t* buffer){
+void loadBuffer(const char* filepath, uint8_t* buffer, void* pointerArray[], size_t count){
     FILE* fptr = fopen(filepath, "r");
     printf("fptr = %p\n", (void *)fptr);
     if(fptr == NULL){
-        raiseError("Unable to load outside buffer", 1);
+        raiseError("Unable to load outside buffer", 1, pointerArray, count);
     }
     
     int c = 0;
