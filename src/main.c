@@ -24,24 +24,25 @@ void raiseError(const char* msg, uint8_t shouldExit){
     if(shouldExit) exit(EXIT_FAILURE);
 }
 
-void loadBuffer(const char* filepath, uint8_t (*buffer)[CELL_H]);
+void loadBuffer(const char* filepath, uint8_t* buffer);
 
-Color assignColor(uint8_t CellID);
-uint8_t countNeighbour(uint8_t (*buffer)[CELL_H], uint16_t posX, uint16_t posY);
+uint8_t countNeighbour(uint8_t *buffer, uint16_t posX, uint16_t posY);
 uint8_t updateCellState(uint8_t selfState, uint8_t Neighbours);
 void drawBoundry();
+
+size_t inline Buffermap(size_t x, size_t y);
 
 int main(int argc, const char* argv[]){
 
     uint8_t fileBuffer = argc - 1;
 
-    static uint8_t _buffer_1[CELL_W][CELL_H] = { 0 };
-    static uint8_t _buffer_2[CELL_W][CELL_H] = { 0 };
+    uint8_t *buffers[] = {
+        calloc(CELL_W * CELL_H, sizeof(uint8_t)),
+        calloc(CELL_W * CELL_H, sizeof(uint8_t))
+    };
 
     if (fileBuffer)
-        loadBuffer(argv[1], _buffer_1);
-
-    uint8_t (*buffers[2])[CELL_H] = { _buffer_1, _buffer_2 };
+        loadBuffer(argv[1], buffers[0]);
 
     uint8_t state = 0;
     uint8_t mode = 0;
@@ -50,12 +51,6 @@ int main(int argc, const char* argv[]){
     SetConfigFlags(FLAG_WINDOW_UNDECORATED);
     InitWindow(WIDTH, HEIGHT, "Window");
     SetTargetFPS(targetFPS);
-
-    // for(int i = 20; i < 24; i++){
-    //     for(int j = 20; j < 25; j++){
-    //         buffers[state][i][j] = 1;
-    //     }
-    // }
 
     while(!WindowShouldClose()){
 
@@ -68,10 +63,10 @@ int main(int argc, const char* argv[]){
                     (Vector2){CELL_W - 1, CELL_H - 1});
 
         if(IsMouseButtonDown(MOUSE_BUTTON_LEFT)){
-                buffers[state][(uint16_t)cellPos.x][(uint16_t)cellPos.y] = 1;
+                buffers[state][Buffermap(cellPos.x, cellPos.y)] = 1;
             }
         else if(IsMouseButtonDown(MOUSE_BUTTON_RIGHT)){
-                buffers[state][(uint8_t)cellPos.x][(uint8_t)cellPos.y] = 0;
+                buffers[state][Buffermap(cellPos.x, cellPos.y)] = 0;
             }
 
         if(IsKeyPressed(KEY_KP_ADD)){
@@ -91,13 +86,16 @@ int main(int argc, const char* argv[]){
 
             ClearBackground(BG_COLOR);
 
-            for(int x = 0; x < CELL_W; x++){
-                for(int y = 0; y < CELL_H; y++){
-                    DrawRectangle(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE, assignColor(buffers[state][x][y]));
+            for(int y = 0; y < CELL_H; y++){
+                    size_t row = y * CELL_W;
+                    for(int x = 0; x < CELL_W; x++){
+                        size_t i = row + x;
+                        if(buffers[state][i])
+                        DrawRectangle(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE, CELL_COLOR);
                 }
             }
 
-            drawBoundry();
+            // drawBoundry();
 
             #ifdef _DEBUG
                 DrawFPS(10, 10);
@@ -112,18 +110,26 @@ int main(int argc, const char* argv[]){
 
         if(mode){
             state = !state;
-            for(int x = 0; x < CELL_W; x++){
-                    for(int y = 0; y < CELL_H; y++){
-                        buffers[state][x][y] = updateCellState(buffers[!state][x][y], countNeighbour(buffers[!state], x, y));
+            for(int y = 0; y < CELL_H; y++){
+                    size_t row = y * CELL_W;
+                    for(int x = 0; x < CELL_W; x++){
+                        size_t i = row + x;
+                        buffers[state][i] = updateCellState(buffers[!state][i], countNeighbour(buffers[!state], x, y));
                 }
             }
         }
-
     }
 
     CloseWindow();
 
+    free(buffers[0]);
+    free(buffers[1]);
+
     return 0;
+}
+
+size_t inline Buffermap(size_t x, size_t y){
+    return ((y * CELL_W) + x);
 }
 
 void drawBoundry(){
@@ -135,18 +141,7 @@ void drawBoundry(){
     }
 }
 
-Color assignColor(uint8_t CellID){
-    switch (CellID){
-        case 0:
-            return BG_COLOR;
-        case 1:
-            return CELL_COLOR;
-        default:
-            return PURPLE;
-    }
-}
-
-uint8_t countNeighbour(uint8_t (*buffer)[CELL_H], uint16_t posX, uint16_t posY){
+uint8_t countNeighbour(uint8_t *buffer, uint16_t posX, uint16_t posY){
     int n = 0;
     for(int dx = -1; dx < 2; dx++){
         for(int dy = -1; dy < 2; dy++){
@@ -164,7 +159,7 @@ uint8_t countNeighbour(uint8_t (*buffer)[CELL_H], uint16_t posX, uint16_t posY){
             else if (j >= CELL_H)
                 j = 0;
 
-            if(buffer[i][j]){ n++;}
+            if(buffer[Buffermap(i, j)]){ n++;}
         }
     }
     return n;
@@ -180,7 +175,7 @@ uint8_t updateCellState(uint8_t selfState, uint8_t neighbours)
     return neighbours == 2 || neighbours == 3;
 }
 
-void loadBuffer(const char* filepath, uint8_t (*buffer)[CELL_H]){
+void loadBuffer(const char* filepath, uint8_t* buffer){
     FILE* fptr = fopen(filepath, "r");
     printf("fptr = %p\n", (void *)fptr);
     if(fptr == NULL){
@@ -200,7 +195,7 @@ void loadBuffer(const char* filepath, uint8_t (*buffer)[CELL_H]){
 
             if (c == '0' || c == '1')
             {
-                buffer[x][y] = c - '0';
+                buffer[Buffermap(x, y)] = c - '0';
                 x++;
             }
         }
